@@ -19,6 +19,6 @@ Make sure you have [Node.js](https://nodejs.org/) installed on your machine. You
 Clone the repository and install the required dependencies:
 
 ```bash
-git clone [https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git)
-cd YOUR_REPO_NAME
+git clone git@github.com:safi-ur-rahman/free-games-notifier.git
+cd free-games-notifier
 npm install
