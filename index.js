@@ -1,18 +1,68 @@
-import nodemailer from 'nodemailer';
+import nodemailer from "nodemailer";
+import fs from "fs";
+import path from "path";
+
+// Helper function to handle pausing execution
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function sendFreeGamesEmail() {
   try {
-    // 1. Fetch data from GamerPower API
-    const response = await fetch('https://www.gamerpower.com/api/filter?platform=epic-games-store.steam&type=game');
-    if (!response.ok) throw new Error(`API error: ${response.status}`);
-    const games = await response.json();
+    // 1. Read emails from subscribers.txt
+    const filePath = path.join(process.cwd(), "subscribers.txt");
 
-    if (!games || games.length === 0) {
-      console.log('No free games found today.');
+    if (!fs.existsSync(filePath)) {
+      throw new Error(
+        "subscribers.txt file not found! Please create it in the root directory.",
+      );
+    }
+
+    const fileContent = fs.readFileSync(filePath, "utf-8");
+
+    const emailList = fileContent
+      .split("\n")
+      .map((email) => email.trim())
+      .filter((email) => email.length > 0 && !email.startsWith("#"));
+
+    if (emailList.length === 0) {
+      console.log(
+        "No subscribers found in subscribers.txt. Skipping execution.",
+      );
       return;
     }
 
-    // 2. Build the HTML template
+    console.log(`Found ${emailList.length} subscriber(s). Fetching games...`);
+
+    // 2. Fetch data from GamerPower API with Backoff Retry Logic
+    const url = "https://www.gamerpower.com/api/filter?platform=epic-games-store.steam&type=game";
+    const retryDelays = [10000, 20000, 30000]; // 10s, 20s, 30s in milliseconds
+    let response;
+    let games;
+
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      try {
+        response = await fetch(url);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        games = await response.json();
+        break; // Success! Break out of the retry loop
+      } catch (error) {
+        if (attempt < retryDelays.length) {
+          console.warn(
+            `Attempt ${attempt + 1} failed: ${error.message}. Retrying in ${retryDelays[attempt] / 1000}s...`
+          );
+          await delay(retryDelays[attempt]);
+        } else {
+          // No more retries left
+          throw new Error(`All download attempts failed. Last error: ${error.message}`);
+        }
+      }
+    }
+
+    if (!games || games.length === 0) {
+      console.log("No free games found today.");
+      return;
+    }
+
+    // 3. Build the HTML template
     let htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
         <h2 style="color: #1a1a1a; text-align: center;">🎮 Free Games Alert!</h2>
@@ -38,31 +88,30 @@ async function sendFreeGamesEmail() {
       </div>
     `;
 
-    // 3. Setup SMTP transporter using GitHub environment secrets
+    // 4. Setup SMTP transporter
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host: "smtp.gmail.com",
       port: 465,
-      secure: true, 
+      secure: true,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
     });
 
-    // 4. Send the email
+    // 5. Send the email to the parsed list (joined by commas)
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_TO, // Comma-separated list of your destination emails
-      subject: '🔥 Free Games Update: Steam & Epic Games',
+      to: emailList.join(","),
+      subject: "🔥 Free Games Update: Steam & Epic Games",
       html: htmlContent,
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', info.messageId);
-
+    console.log("Email sent successfully:", info.messageId);
   } catch (error) {
-    console.error('Workflow execution failed:', error);
-    process.exit(1); 
+    console.error("Workflow execution failed:", error);
+    process.exit(1);
   }
 }
 
